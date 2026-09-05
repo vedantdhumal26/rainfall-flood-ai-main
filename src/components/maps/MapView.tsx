@@ -43,6 +43,22 @@ const destinationIcon = L.divIcon({
   iconAnchor: [18, 18],
 });
 
+const createWaypointIcon = (stepNumber: number) => {
+  return L.divIcon({
+    className: 'waypoint-marker-wrapper',
+    html: `
+      <div style="position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+        <span style="position: absolute; width: 28px; height: 28px; border-radius: 9999px; background: rgba(14, 165, 233, 0.35); animation: ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
+        <div style="position: relative; width: 22px; height: 22px; border-radius: 9999px; background: #0284c7; border: 2px solid #ffffff; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(14,165,233,0.85); color: white; font-weight: 800; font-size: 11px;">
+          ${stepNumber}
+        </div>
+      </div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+};
+
 function getRiskColor(risk: string): string {
   switch (risk.toLowerCase()) {
     case 'critical':
@@ -95,13 +111,11 @@ function FlyToController({
   const lastState = useRef<string>('');
 
   useEffect(() => {
-    if (bounds && bounds.length >= 2) {
-      const key = `bounds-${bounds[0][0]},${bounds[0][1]}-${bounds[bounds.length - 1][0]},${bounds[bounds.length - 1][1]}-${bounds.length}`;
+    if (focusTarget && focusTarget[0] != null && focusTarget[1] != null) {
+      const key = `target-${focusTarget[0]},${focusTarget[1]},${zoom}`;
       if (lastState.current !== key) {
         lastState.current = key;
-        map.fitBounds(bounds as L.LatLngBoundsExpression, {
-          padding: [60, 60],
-          maxZoom: 15,
+        map.flyTo(focusTarget, zoom, {
           animate: true,
           duration: 1.2,
         });
@@ -109,11 +123,13 @@ function FlyToController({
       return;
     }
 
-    if (focusTarget && focusTarget[0] != null && focusTarget[1] != null) {
-      const key = `target-${focusTarget[0]},${focusTarget[1]},${zoom}`;
+    if (bounds && bounds.length >= 2) {
+      const key = `bounds-${bounds[0][0]},${bounds[0][1]}-${bounds[bounds.length - 1][0]},${bounds[bounds.length - 1][1]}-${bounds.length}`;
       if (lastState.current !== key) {
         lastState.current = key;
-        map.flyTo(focusTarget, zoom, {
+        map.fitBounds(bounds as L.LatLngBoundsExpression, {
+          padding: [60, 60],
+          maxZoom: 15,
           animate: true,
           duration: 1.2,
         });
@@ -247,6 +263,7 @@ export interface MapViewProps {
   navigating?: boolean;
   origin?: { position: [number, number]; label?: string };
   destination?: { position: [number, number]; label?: string };
+  onSelectRoute?: (id: string) => void;
   className?: string;
 }
 
@@ -262,6 +279,7 @@ export function MapView({
   navigating = false,
   origin,
   destination,
+  onSelectRoute,
   className = '',
 }: MapViewProps) {
   const [layers, setLayers] = useState<MapLayerConfig[]>(MAP_LAYERS);
@@ -463,6 +481,13 @@ export function MapView({
                   {/* Main route polyline */}
                   <Polyline
                     positions={route.path}
+                    eventHandlers={{
+                      click: () => {
+                        if (onSelectRoute) {
+                          onSelectRoute(route.id);
+                        }
+                      },
+                    }}
                     pathOptions={{
                       color: isSelected ? '#22c55e' : '#38bdf8',
                       weight: isSelected ? 6 : 4,
@@ -477,12 +502,41 @@ export function MapView({
                         <div className={`mt-1 font-bold uppercase ${route.risk === 'low' ? 'text-risk-low' : 'text-risk-moderate'}`}>
                           Risk: {route.risk}
                         </div>
+                        <div className="text-[10px] text-accent-400 mt-1.5 underline cursor-pointer">
+                          Click to select and navigate this route
+                        </div>
                       </div>
                     </Popup>
                   </Polyline>
                 </Fragment>
               );
             })}
+
+            {/* Intermediate marked checkpoint waypoints for active route */}
+            {EVACUATION_ROUTES.filter((r) => r.id === (activeRouteId || 'r1')).map((r) =>
+              r.waypoints?.map((wp, idx) => {
+                if (idx === 0 || idx === r.waypoints!.length - 1) return null;
+                return (
+                  <Marker key={wp.id} position={wp.position} icon={createWaypointIcon(idx)}>
+                    <Popup>
+                      <div className="text-xs p-1">
+                        <div className="font-bold text-accent-300 flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center text-[10px] font-bold">
+                            {idx}
+                          </span>
+                          {wp.label}
+                        </div>
+                        <div className="text-slate-200 mt-1.5 font-medium leading-snug">{wp.instruction}</div>
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2.5 pt-1.5 border-t border-white/10">
+                          <span>Progress: {wp.distanceFromStart}</span>
+                          <span className="text-risk-low font-semibold">{wp.safetyStatus}</span>
+                        </div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })
+            )}
           </>
         )}
 

@@ -66,6 +66,15 @@ export interface SafeLocation {
   lon?: number;
 }
 
+export interface RouteWaypoint {
+  id: string;
+  label: string;
+  instruction: string;
+  position: [number, number];
+  distanceFromStart: string;
+  safetyStatus: string;
+}
+
 export interface EvacuationRoute {
   id: string;
   name: string;
@@ -74,6 +83,9 @@ export interface EvacuationRoute {
   risk: RiskLevel;
   routeType: 'recommended' | 'alternate';
   path: [number, number][];
+  destinationName?: string;
+  destinationPos?: [number, number];
+  waypoints?: RouteWaypoint[];
 }
 
 export interface MapLayerConfig {
