@@ -31,20 +31,10 @@ export function Evacuation() {
   const route = EVACUATION_ROUTES.find((r) => r.id === activeRoute) || EVACUATION_ROUTES[0];
 
   // Active path and destination for map visualization
-  const activePath: [number, number][] =
-    activeRoute === 'r1' && backendPlan?.route_coordinates && backendPlan.route_coordinates.length > 1
-      ? (backendPlan.route_coordinates as [number, number][])
-      : route.path;
-
-  const destinationPos: [number, number] =
-    activeRoute === 'r1' && backendPlan?.destination
-      ? [backendPlan.destination.lat, backendPlan.destination.lon]
-      : route.path[route.path.length - 1];
-
+  const activePath: [number, number][] = route.path;
+  const destinationPos: [number, number] = route.path[route.path.length - 1];
   const destinationLabel =
-    activeRoute === 'r1' && backendPlan?.destination?.name
-      ? backendPlan.destination.name
-      : activeRoute === 'r1'
+    activeRoute === 'r1'
       ? 'Shivaji Nagar Community Hall (Shelter A)'
       : 'Kothrud Emergency Relief Center (Shelter B)';
 
@@ -111,7 +101,6 @@ export function Evacuation() {
             <MapView
               height="100%"
               activeRouteId={activeRoute}
-              customRouteCoordinates={activeRoute === 'r1' && backendPlan?.route_coordinates ? backendPlan.route_coordinates : null}
               routeBounds={activePath}
               navigating={navigating}
               origin={{

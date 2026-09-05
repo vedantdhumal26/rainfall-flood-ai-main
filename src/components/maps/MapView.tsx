@@ -1,6 +1,6 @@
 import { MapContainer, TileLayer, CircleMarker, Polygon, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Fragment } from 'react';
 import { Plus, Minus, Layers, Search, X, Loader2 } from 'lucide-react';
 import { MAP_CENTER, MAP_ZOOM, BLOCKED_ROADS, MAP_LAYERS, EVACUATION_ROUTES } from '@/data/mockData';
 import type { MapLayerConfig, SafeLocation } from '@/types';
@@ -412,8 +412,8 @@ export function MapView({
             </Marker>
           ))}
 
-        {/* Evacuation routes */}
-        {getLayer('evacuation') && (
+        {/* Evacuation routes (always visible if activeRouteId, customRouteCoordinates, or layer enabled) */}
+        {(getLayer('evacuation') || activeRouteId != null || customRouteCoordinates != null) && (
           <>
             {/* Custom calculated route from backend if available */}
             {customRouteCoordinates && customRouteCoordinates.length > 1 && (
@@ -422,7 +422,7 @@ export function MapView({
                   positions={customRouteCoordinates}
                   pathOptions={{
                     color: '#22c55e',
-                    weight: 8,
+                    weight: 10,
                     opacity: 0.35,
                   }}
                 />
@@ -430,8 +430,8 @@ export function MapView({
                   positions={customRouteCoordinates}
                   pathOptions={{
                     color: '#22c55e',
-                    weight: 5,
-                    opacity: 0.95,
+                    weight: 6,
+                    opacity: 1.0,
                   }}
                 >
                   <Popup>
@@ -444,33 +444,45 @@ export function MapView({
               </>
             )}
 
-            {/* Pre-mapped evacuation routes */}
-            {(!customRouteCoordinates || customRouteCoordinates.length === 0) &&
-              EVACUATION_ROUTES.map((route) => {
-                const isSelected = activeRouteId ? route.id === activeRouteId : route.routeType === 'recommended';
-                return (
+            {/* Standard evacuation routes */}
+            {EVACUATION_ROUTES.map((route) => {
+              const isSelected = activeRouteId ? route.id === activeRouteId : route.routeType === 'recommended';
+              return (
+                <Fragment key={route.id}>
+                  {/* Glowing outline for selected active route */}
+                  {isSelected && (
+                    <Polyline
+                      positions={route.path}
+                      pathOptions={{
+                        color: '#22c55e',
+                        weight: 12,
+                        opacity: 0.45,
+                      }}
+                    />
+                  )}
+                  {/* Main route polyline */}
                   <Polyline
-                    key={route.id}
                     positions={route.path}
                     pathOptions={{
-                      color: isSelected ? '#22c55e' : '#64748b',
-                      weight: isSelected ? (navigating ? 7 : 5) : 3,
-                      opacity: isSelected ? 0.95 : 0.45,
+                      color: isSelected ? '#22c55e' : '#38bdf8',
+                      weight: isSelected ? 6 : 4,
+                      opacity: isSelected ? 1.0 : 0.75,
                       dashArray: !isSelected ? '8 6' : undefined,
                     }}
                   >
                     <Popup>
                       <div className="text-xs">
                         <div className="font-semibold text-accent-300">{route.name}</div>
-                        <div className="text-slate-400 mt-1">Distance: {route.distance} km · Est. Time: {route.duration} min</div>
+                        <div className="text-slate-300 mt-1">Distance: {route.distance} km · Est. Time: {route.duration} min</div>
                         <div className={`mt-1 font-bold uppercase ${route.risk === 'low' ? 'text-risk-low' : 'text-risk-moderate'}`}>
                           Risk: {route.risk}
                         </div>
                       </div>
                     </Popup>
                   </Polyline>
-                );
-              })}
+                </Fragment>
+              );
+            })}
           </>
         )}
 
