@@ -1,6 +1,6 @@
 import { MapContainer, TileLayer, CircleMarker, Polygon, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Plus, Minus, Layers, Search, X, Loader2 } from 'lucide-react';
 import { MAP_CENTER, MAP_ZOOM, BLOCKED_ROADS, MAP_LAYERS, EVACUATION_ROUTES } from '@/data/mockData';
 import type { MapLayerConfig, SafeLocation } from '@/types';
@@ -14,6 +14,33 @@ L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+// Custom origin and destination markers
+const originIcon = L.divIcon({
+  className: 'origin-marker-wrapper',
+  html: `
+    <div style="position: relative; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+      <span style="position: absolute; width: 32px; height: 32px; border-radius: 9999px; background: rgba(14, 165, 233, 0.45); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
+      <span style="position: relative; width: 18px; height: 18px; border-radius: 9999px; background: #0284c7; border: 2.5px solid #ffffff; box-shadow: 0 0 12px rgba(14,165,233,0.9);"></span>
+    </div>
+  `,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
+const destinationIcon = L.divIcon({
+  className: 'destination-marker-wrapper',
+  html: `
+    <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+      <span style="position: absolute; width: 36px; height: 36px; border-radius: 9999px; background: rgba(34, 197, 94, 0.4); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
+      <div style="position: relative; width: 26px; height: 26px; border-radius: 8px; background: #16a34a; border: 2.5px solid #ffffff; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 14px rgba(34,197,94,0.9); color: white; font-weight: 800; font-size: 13px;">
+        &#10003;
+      </div>
+    </div>
+  `,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
 });
 
 function getRiskColor(risk: string): string {
@@ -55,13 +82,45 @@ function ZoomControls() {
   );
 }
 
-function FlyToController({ focusTarget }: { focusTarget?: [number, number] | null }) {
+function FlyToController({
+  focusTarget,
+  zoom = 14,
+  bounds,
+}: {
+  focusTarget?: [number, number] | null;
+  zoom?: number;
+  bounds?: [number, number][] | null;
+}) {
   const map = useMap();
+  const lastState = useRef<string>('');
+
   useEffect(() => {
-    if (focusTarget) {
-      map.flyTo(focusTarget, 14, { duration: 1.2 });
+    if (bounds && bounds.length >= 2) {
+      const key = `bounds-${bounds[0][0]},${bounds[0][1]}-${bounds[bounds.length - 1][0]},${bounds[bounds.length - 1][1]}-${bounds.length}`;
+      if (lastState.current !== key) {
+        lastState.current = key;
+        map.fitBounds(bounds as L.LatLngBoundsExpression, {
+          padding: [60, 60],
+          maxZoom: 15,
+          animate: true,
+          duration: 1.2,
+        });
+      }
+      return;
     }
-  }, [focusTarget, map]);
+
+    if (focusTarget && focusTarget[0] != null && focusTarget[1] != null) {
+      const key = `target-${focusTarget[0]},${focusTarget[1]},${zoom}`;
+      if (lastState.current !== key) {
+        lastState.current = key;
+        map.flyTo(focusTarget, zoom, {
+          animate: true,
+          duration: 1.2,
+        });
+      }
+    }
+  }, [focusTarget, zoom, bounds, map]);
+
   return null;
 }
 
@@ -176,15 +235,35 @@ function LayerSwitcher({ layers, onToggle }: { layers: MapLayerConfig[]; onToggl
   );
 }
 
-interface MapViewProps {
+export interface MapViewProps {
   height?: string;
   showControls?: boolean;
   showSearch?: boolean;
   focusTarget?: [number, number] | null;
+  focusZoom?: number;
+  routeBounds?: [number, number][] | null;
+  activeRouteId?: string | null;
+  customRouteCoordinates?: [number, number][] | null;
+  navigating?: boolean;
+  origin?: { position: [number, number]; label?: string };
+  destination?: { position: [number, number]; label?: string };
   className?: string;
 }
 
-export function MapView({ height = '100%', showControls = true, showSearch = true, focusTarget, className = '' }: MapViewProps) {
+export function MapView({
+  height = '100%',
+  showControls = true,
+  showSearch = true,
+  focusTarget,
+  focusZoom = 14,
+  routeBounds,
+  activeRouteId,
+  customRouteCoordinates,
+  navigating = false,
+  origin,
+  destination,
+  className = '',
+}: MapViewProps) {
   const [layers, setLayers] = useState<MapLayerConfig[]>(MAP_LAYERS);
   const [geoJsonData, setGeoJsonData] = useState<GeoJsonFeatureCollection | null>(null);
   const [rainfallCircles, setRainfallCircles] = useState<RainfallCircle[]>([]);
@@ -258,7 +337,7 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
           attribution='&copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, FAO, NOAA, USGS, EPA'
         />
 
-        <FlyToController focusTarget={focusTarget} />
+        <FlyToController focusTarget={focusTarget} zoom={focusZoom} bounds={routeBounds} />
         {showControls && <ZoomControls />}
 
         {/* Dynamic Rainfall heatmap circles from Backend API */}
@@ -334,19 +413,92 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
           ))}
 
         {/* Evacuation routes */}
-        {getLayer('evacuation') &&
-          EVACUATION_ROUTES.map((route) => (
-            <Polyline
-              key={route.id}
-              positions={route.path}
-              pathOptions={{
-                color: route.routeType === 'recommended' ? '#22c55e' : '#06b6d4',
-                weight: 4,
-                opacity: 0.75,
-                dashArray: route.routeType === 'alternate' ? '10 6' : undefined,
-              }}
-            />
-          ))}
+        {getLayer('evacuation') && (
+          <>
+            {/* Custom calculated route from backend if available */}
+            {customRouteCoordinates && customRouteCoordinates.length > 1 && (
+              <>
+                <Polyline
+                  positions={customRouteCoordinates}
+                  pathOptions={{
+                    color: '#22c55e',
+                    weight: 8,
+                    opacity: 0.35,
+                  }}
+                />
+                <Polyline
+                  positions={customRouteCoordinates}
+                  pathOptions={{
+                    color: '#22c55e',
+                    weight: 5,
+                    opacity: 0.95,
+                  }}
+                >
+                  <Popup>
+                    <div className="text-xs">
+                      <div className="font-semibold text-risk-low">AI Optimized Evacuation Corridor</div>
+                      <div className="text-slate-300 mt-1">Direct safe path bypassing high flood depths</div>
+                    </div>
+                  </Popup>
+                </Polyline>
+              </>
+            )}
+
+            {/* Pre-mapped evacuation routes */}
+            {(!customRouteCoordinates || customRouteCoordinates.length === 0) &&
+              EVACUATION_ROUTES.map((route) => {
+                const isSelected = activeRouteId ? route.id === activeRouteId : route.routeType === 'recommended';
+                return (
+                  <Polyline
+                    key={route.id}
+                    positions={route.path}
+                    pathOptions={{
+                      color: isSelected ? '#22c55e' : '#64748b',
+                      weight: isSelected ? (navigating ? 7 : 5) : 3,
+                      opacity: isSelected ? 0.95 : 0.45,
+                      dashArray: !isSelected ? '8 6' : undefined,
+                    }}
+                  >
+                    <Popup>
+                      <div className="text-xs">
+                        <div className="font-semibold text-accent-300">{route.name}</div>
+                        <div className="text-slate-400 mt-1">Distance: {route.distance} km · Est. Time: {route.duration} min</div>
+                        <div className={`mt-1 font-bold uppercase ${route.risk === 'low' ? 'text-risk-low' : 'text-risk-moderate'}`}>
+                          Risk: {route.risk}
+                        </div>
+                      </div>
+                    </Popup>
+                  </Polyline>
+                );
+              })}
+          </>
+        )}
+
+        {/* Origin / User Location Marker */}
+        {origin && origin.position && (
+          <Marker position={origin.position} icon={originIcon}>
+            <Popup>
+              <div className="text-xs">
+                <div className="font-semibold text-accent-400">Current Position</div>
+                <div className="text-slate-200 mt-0.5">{origin.label || 'Your Location (Pune Center)'}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Starting point for evacuation</div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
+        {/* Destination / Evacuation Shelter Marker */}
+        {destination && destination.position && (
+          <Marker position={destination.position} icon={destinationIcon}>
+            <Popup>
+              <div className="text-xs">
+                <div className="font-bold text-risk-low uppercase">Designated Safe Haven</div>
+                <div className="text-slate-200 mt-0.5 font-semibold">{destination.label || 'Assigned Safe Shelter'}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Status: Open & Ready for Evacuees</div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
 
         {/* Blocked roads */}
         {BLOCKED_ROADS.map((pos, idx) => (

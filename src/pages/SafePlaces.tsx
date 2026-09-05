@@ -35,6 +35,7 @@ export function SafePlaces() {
   const selectedLoc = shelters.find((s) => s.id === selected) || shelters[0];
 
   const handleGetRoute = async (loc: SafeLocation) => {
+    setSelected(loc.id);
     setRoutingShelterId(loc.id);
     try {
       // Default Pune user location coordinates [18.5204, 73.8567]
@@ -46,6 +47,10 @@ export function SafePlaces() {
       setRoutingShelterId(null);
     }
   };
+
+  const shelterPos: [number, number] | null = selectedLoc
+    ? selectedLoc.position ?? (selectedLoc.lat != null && selectedLoc.lon != null ? [selectedLoc.lat, selectedLoc.lon] : null)
+    : null;
 
   return (
     <div className="p-6 space-y-4 animate-fade-in">
@@ -73,7 +78,17 @@ export function SafePlaces() {
         {/* Map */}
         <div className="lg:col-span-7">
           <div className="panel p-1 h-[600px]">
-            <MapView height="100%" focusTarget={selectedLoc?.position ?? (selectedLoc?.lat != null && selectedLoc?.lon != null ? [selectedLoc.lat, selectedLoc.lon] : null)} />
+            <MapView
+              height="100%"
+              focusTarget={shelterPos}
+              customRouteCoordinates={evacPlan?.route_coordinates}
+              routeBounds={evacPlan?.route_coordinates}
+              origin={evacPlan ? { position: [18.5204, 73.8567], label: 'Your Position (Pune Center)' } : undefined}
+              destination={shelterPos ? {
+                position: shelterPos,
+                label: selectedLoc.name,
+              } : undefined}
+            />
           </div>
         </div>
 

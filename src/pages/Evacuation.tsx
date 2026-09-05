@@ -30,6 +30,24 @@ export function Evacuation() {
 
   const route = EVACUATION_ROUTES.find((r) => r.id === activeRoute) || EVACUATION_ROUTES[0];
 
+  // Active path and destination for map visualization
+  const activePath: [number, number][] =
+    activeRoute === 'r1' && backendPlan?.route_coordinates && backendPlan.route_coordinates.length > 1
+      ? (backendPlan.route_coordinates as [number, number][])
+      : route.path;
+
+  const destinationPos: [number, number] =
+    activeRoute === 'r1' && backendPlan?.destination
+      ? [backendPlan.destination.lat, backendPlan.destination.lon]
+      : route.path[route.path.length - 1];
+
+  const destinationLabel =
+    activeRoute === 'r1' && backendPlan?.destination?.name
+      ? backendPlan.destination.name
+      : activeRoute === 'r1'
+      ? 'Shivaji Nagar Community Hall (Shelter A)'
+      : 'Kothrud Emergency Relief Center (Shelter B)';
+
   return (
     <div className="p-6 space-y-4 animate-fade-in">
       <div>
@@ -46,7 +64,7 @@ export function Evacuation() {
             </span>
             <div>
               <span className="font-bold text-risk-low uppercase">Live Turn-by-Turn Navigation Active</span>
-              <p className="text-slate-300 mt-0.5">Proceeding east along Shivaji Road towards designated shelter: {backendPlan?.destination?.name || 'Shivaji Nagar Community Hall'}.</p>
+              <p className="text-slate-300 mt-0.5">Proceeding east along Shivaji Road towards designated shelter: {destinationLabel}.</p>
             </div>
           </div>
           <button
@@ -80,7 +98,7 @@ export function Evacuation() {
               <Shield className="w-5 h-5 text-risk-low" />
             </div>
             <span className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">
-              {backendPlan?.destination?.name ? backendPlan.destination.name.slice(0, 22) + '...' : 'Assigned Shelter'}
+              {destinationLabel.slice(0, 26)}
             </span>
           </div>
         </div>
@@ -90,7 +108,21 @@ export function Evacuation() {
         {/* Map */}
         <div className="lg:col-span-8">
           <div className="panel p-1 h-[500px]">
-            <MapView height="100%" />
+            <MapView
+              height="100%"
+              activeRouteId={activeRoute}
+              customRouteCoordinates={activeRoute === 'r1' && backendPlan?.route_coordinates ? backendPlan.route_coordinates : null}
+              routeBounds={activePath}
+              navigating={navigating}
+              origin={{
+                position: [18.5204, 73.8567],
+                label: 'Your Position (Pune Center)',
+              }}
+              destination={{
+                position: destinationPos,
+                label: destinationLabel,
+              }}
+            />
           </div>
         </div>
 
