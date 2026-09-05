@@ -1,9 +1,24 @@
 /**
  * Centralized API client for RainShield AI
- * Uses VITE_API_URL environment configuration with automatic fallback
+ * Dynamically resolves API base URL:
+ * - In production browser environments (e.g. *.vercel.app or custom domains), uses same-origin relative path ''
+ * - In local development (localhost / 127.0.0.1), uses VITE_API_URL or defaults to 'http://localhost:8000'
  */
+function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  // If explicitly set to a custom remote host
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+    return envUrl.replace(/\/+$/, '');
+  }
+  // In production browser environments, use same-origin relative URLs
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return '';
+  }
+  // Local development fallback
+  return (envUrl || 'http://localhost:8000').replace(/\/+$/, '');
+}
 
-const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const BASE_URL = getApiBaseUrl();
 
 export interface ApiResponse<T> {
   success: boolean;

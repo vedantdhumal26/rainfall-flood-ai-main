@@ -4,12 +4,39 @@ import os
 import datetime
 from typing import Dict, List, Any, Optional
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rainshield.db")
+import os
+import shutil
+import tempfile
+
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rainshield.db")
+
+def get_db_path() -> str:
+    # On Vercel, AWS Lambda, or any environment where parent dir is read-only
+    is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    parent_dir = os.path.dirname(DEFAULT_DB_PATH) or "."
+    is_read_only = not os.access(parent_dir, os.W_OK)
+
+    if is_serverless or is_read_only:
+        tmp_db = os.path.join(tempfile.gettempdir(), "rainshield.db")
+        if not os.path.exists(tmp_db) and os.path.exists(DEFAULT_DB_PATH):
+            try:
+                shutil.copy2(DEFAULT_DB_PATH, tmp_db)
+            except Exception as e:
+                print(f"[DB] Error copying seed DB to {tmp_db}: {e}")
+        return tmp_db
+    return DEFAULT_DB_PATH
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    db_file = get_db_path()
+    try:
+        conn = sqlite3.connect(db_file, timeout=15)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception as e:
+        print(f"[DB] Error connecting to {db_file}: {e}")
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def init_db():
     conn = get_connection()

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopHeader } from '@/components/layout/TopHeader';
 import { CommandCenter } from '@/pages/CommandCenter';
@@ -30,18 +30,47 @@ const PAGE_META: Record<PageId, { title: string; subtitle: string }> = {
   citizen: { title: 'CITIZEN MODE', subtitle: 'Emergency Interface' },
 };
 
+function getPageFromLocation(): PageId {
+  if (typeof window === 'undefined') return 'command';
+  const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase() as PageId;
+  if (hash && hash in PAGE_META) return hash;
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase() as PageId;
+  if (path && path in PAGE_META) return path;
+  return 'command';
+}
+
 function App() {
-  const [page, setPage] = useState<PageId>('command');
+  const [page, setPage] = useState<PageId>(getPageFromLocation);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const p = getPageFromLocation();
+      setPage(p);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onHashChange);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('popstate', onHashChange);
+    };
+  }, []);
+
+  const handleNavigate = useCallback((newPage: PageId) => {
+    setPage(newPage);
+    if (typeof window !== 'undefined') {
+      window.location.hash = newPage;
+    }
+  }, []);
 
   if (page === 'citizen') {
-    return <CitizenMode onExit={() => setPage('command')} />;
+    return <CitizenMode onExit={() => handleNavigate('command')} />;
   }
 
-  const meta = PAGE_META[page];
+  const meta = PAGE_META[page] || PAGE_META.command;
 
   return (
     <div className="flex h-screen overflow-hidden bg-base-950">
-      <Sidebar activePage={page} onNavigate={setPage} />
+      <Sidebar activePage={page} onNavigate={handleNavigate} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopHeader title={meta.title} subtitle={meta.subtitle} />
         <main className="flex-1 overflow-y-auto">
@@ -63,3 +92,4 @@ function App() {
 }
 
 export default App;
+
