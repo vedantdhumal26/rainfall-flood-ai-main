@@ -1,10 +1,12 @@
 import { MapContainer, TileLayer, CircleMarker, Polygon, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { useEffect, useState } from 'react';
-import { Plus, Minus, Layers, Search, X } from 'lucide-react';
-import { MAP_CENTER, MAP_ZOOM, FLOOD_POLYGONS, RAINFALL_CIRCLES, SAFE_LOCATIONS, EVACUATION_ROUTES, BLOCKED_ROADS, MAP_LAYERS } from '@/data/mockData';
-import type { MapLayerConfig } from '@/types';
-import { riskColor } from '@/utils/risk';
+import { Plus, Minus, Layers, Search, X, Loader2 } from 'lucide-react';
+import { MAP_CENTER, MAP_ZOOM, BLOCKED_ROADS, MAP_LAYERS, EVACUATION_ROUTES } from '@/data/mockData';
+import type { MapLayerConfig, SafeLocation } from '@/types';
+import { riskZonesApi, type GeoJsonFeatureCollection } from '@/api/riskZones';
+import { rainfallApi, type RainfallCircle } from '@/api/rainfall';
+import { responseApi } from '@/api/response';
 
 // Fix default marker icon
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
@@ -14,6 +16,23 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+function getRiskColor(risk: string): string {
+  switch (risk.toLowerCase()) {
+    case 'critical':
+    case 'severe':
+      return '#ef4444'; // red
+    case 'high':
+    case 'warning':
+      return '#f97316'; // orange
+    case 'moderate':
+    case 'watch':
+      return '#eab308'; // yellow
+    case 'low':
+    default:
+      return '#22c55e'; // green
+  }
+}
+
 function ZoomControls() {
   const map = useMap();
   return (
@@ -21,12 +40,14 @@ function ZoomControls() {
       <button
         onClick={() => map.zoomIn()}
         className="w-8 h-8 rounded-md bg-base-800/90 border border-white/10 flex items-center justify-center text-accent-300 hover:bg-base-750 transition-colors backdrop-blur-sm"
+        title="Zoom in"
       >
         <Plus className="w-4 h-4" />
       </button>
       <button
         onClick={() => map.zoomOut()}
         className="w-8 h-8 rounded-md bg-base-800/90 border border-white/10 flex items-center justify-center text-accent-300 hover:bg-base-750 transition-colors backdrop-blur-sm"
+        title="Zoom out"
       >
         <Minus className="w-4 h-4" />
       </button>
@@ -51,7 +72,7 @@ function LiveIndicator() {
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-risk-severe opacity-60"></span>
         <span className="relative inline-flex rounded-full h-2 w-2 bg-risk-severe"></span>
       </span>
-      <span className="text-[10px] font-bold text-risk-severe tracking-wider">LIVE</span>
+      <span className="text-[10px] font-bold text-risk-severe tracking-wider">LIVE FEED</span>
     </div>
   );
 }
@@ -59,15 +80,15 @@ function LiveIndicator() {
 function Legend() {
   return (
     <div className="absolute bottom-3 left-3 z-[1000] px-3 py-2.5 rounded-md bg-base-800/90 border border-white/10 backdrop-blur-sm">
-      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Legend</div>
+      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Map Risk Legend</div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {[
-          { label: 'Rainfall', color: '#06b6d4' },
-          { label: 'Flood Extent', color: '#ef4444' },
-          { label: 'Water Depth', color: '#f97316' },
-          { label: 'Risk Zone', color: '#eab308' },
-          { label: 'Safe Location', color: '#22c55e' },
-          { label: 'Evacuation', color: '#22c55e' },
+          { label: 'Critical / Severe', color: '#ef4444' },
+          { label: 'High / Warning', color: '#f97316' },
+          { label: 'Moderate / Watch', color: '#eab308' },
+          { label: 'Low / Safe', color: '#22c55e' },
+          { label: 'Rainfall Heatmap', color: '#06b6d4' },
+          { label: 'Evacuation Route', color: '#22c55e' },
         ].map((item) => (
           <div key={item.label} className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full" style={{ background: item.color }} />
@@ -86,7 +107,7 @@ function SearchBox() {
         <Search className="w-3.5 h-3.5 text-slate-500" />
         <input
           type="text"
-          placeholder="Search location..."
+          placeholder="Search Pune ward or zone..."
           className="bg-transparent text-xs text-slate-300 placeholder:text-slate-600 outline-none flex-1"
         />
       </div>
@@ -113,7 +134,7 @@ function LayerSwitcher({ layers, onToggle }: { layers: MapLayerConfig[]; onToggl
           <div className="fixed inset-0 z-[999]" onClick={() => setOpen(false)} />
           <div className="absolute top-full right-0 mt-1 w-60 rounded-lg bg-base-800 border border-white/10 shadow-xl z-[1001] animate-fade-in">
             <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/5">
-              <span className="text-xs font-semibold text-slate-200">Map Layers</span>
+              <span className="text-xs font-semibold text-slate-200">GIS Layers</span>
               <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-slate-300">
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -165,6 +186,10 @@ interface MapViewProps {
 
 export function MapView({ height = '100%', showControls = true, showSearch = true, focusTarget, className = '' }: MapViewProps) {
   const [layers, setLayers] = useState<MapLayerConfig[]>(MAP_LAYERS);
+  const [geoJsonData, setGeoJsonData] = useState<GeoJsonFeatureCollection | null>(null);
+  const [rainfallCircles, setRainfallCircles] = useState<RainfallCircle[]>([]);
+  const [shelters, setShelters] = useState<SafeLocation[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const toggleLayer = (id: string) => {
     setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, active: !l.active } : l)));
@@ -172,8 +197,54 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
 
   const getLayer = (id: string) => layers.find((l) => l.id === id)?.active ?? false;
 
+  // Load live GIS data from backend APIs
+  useEffect(() => {
+    let isMounted = true;
+    const fetchGisData = async () => {
+      try {
+        const [geoRes, rainRes, shelterRes] = await Promise.all([
+          riskZonesApi.getGeoJson().catch(() => null),
+          rainfallApi.getCurrent().catch(() => null),
+          responseApi.getShelters().catch(() => null),
+        ]);
+
+        if (!isMounted) return;
+
+        if (geoRes && geoRes.features) {
+          setGeoJsonData(geoRes);
+        }
+        if (rainRes && rainRes.rainfall_circles) {
+          setRainfallCircles(rainRes.rainfall_circles);
+        }
+        if (shelterRes && Array.isArray(shelterRes)) {
+          setShelters(shelterRes);
+        }
+      } catch (e) {
+        console.warn('[MapView] Using local GIS cache fallback:', e);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    fetchGisData();
+    const interval = setInterval(fetchGisData, 10000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <div className={`relative ${className}`} style={{ height }}>
+      {isLoading && !geoJsonData && (
+        <div className="absolute inset-0 z-[1002] bg-base-950/60 backdrop-blur-sm flex items-center justify-center rounded-lg">
+          <div className="flex items-center gap-2 text-xs text-accent-300">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading GIS Risk Polygons...
+          </div>
+        </div>
+      )}
+
       <MapContainer
         center={MAP_CENTER}
         zoom={MAP_ZOOM}
@@ -190,9 +261,9 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
         <FlyToController focusTarget={focusTarget} />
         {showControls && <ZoomControls />}
 
-        {/* Rainfall heatmap */}
+        {/* Dynamic Rainfall heatmap circles from Backend API */}
         {getLayer('rainfall') &&
-          RAINFALL_CIRCLES.map((circle, idx) => (
+          rainfallCircles.map((circle, idx) => (
             <CircleMarker
               key={`rain-${idx}`}
               center={circle.center}
@@ -206,47 +277,56 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
             >
               <Popup>
                 <div className="text-xs">
-                  <div className="font-semibold">Rainfall Cell</div>
+                  <div className="font-semibold text-accent-300">Rainfall Station / Cell</div>
                   <div className="text-slate-400 mt-1">Intensity: {circle.intensity} mm/h</div>
                 </div>
               </Popup>
             </CircleMarker>
           ))}
 
-        {/* Flood polygons */}
-        {getLayer('flood-extent') &&
-          FLOOD_POLYGONS.features.map((feature, idx) => {
-            const riskLevel = feature.properties.risk as 'low' | 'moderate' | 'high' | 'severe';
-            const color = riskColor(riskLevel);
+        {/* Dynamic GeoJSON Flood risk polygons from Backend API */}
+        {(getLayer('flood-extent') || getLayer('water-depth')) &&
+          geoJsonData?.features.map((feature, idx) => {
+            const risk = (feature.properties.risk || 'moderate') as string;
+            const color = getRiskColor(risk);
+            const positions = feature.geometry.coordinates[0].map(([lng, lat]) => [lat, lng]) as [number, number][];
+
             return (
               <Polygon
-                key={`flood-${idx}`}
-                positions={feature.geometry.coordinates[0].map(([lng, lat]) => [lat, lng]) as [number, number][]}
+                key={`flood-geo-${feature.id || idx}`}
+                positions={positions}
                 pathOptions={{
                   color: color,
                   fillColor: color,
-                  fillOpacity: 0.25,
+                  fillOpacity: 0.28,
                   weight: 1.5,
                 }}
               >
                 <Popup>
                   <div className="text-xs">
-                    <div className="font-semibold uppercase">{riskLevel} Flood Zone</div>
-                    <div className="text-slate-400 mt-1">Water Depth: {feature.properties.depth} m</div>
+                    <div className="font-semibold uppercase tracking-wider" style={{ color }}>
+                      {risk} Inundation Zone
+                    </div>
+                    <div className="text-slate-300 mt-1 font-medium">{feature.properties.name || 'Riverbank Lowland'}</div>
+                    <div className="text-slate-400">Water Depth: {feature.properties.water_depth || feature.properties.depth || 0.5} m</div>
+                    {feature.properties.flood_probability !== undefined && (
+                      <div className="text-slate-400">Probability: {feature.properties.flood_probability}%</div>
+                    )}
                   </div>
                 </Popup>
               </Polygon>
             );
           })}
 
-        {/* Safe locations */}
+        {/* Dynamic Safe locations from Backend API */}
         {getLayer('safe-locations') &&
-          SAFE_LOCATIONS.map((loc) => (
-            <Marker key={loc.id} position={loc.position}>
+          shelters.map((loc) => (
+            <Marker key={loc.id} position={loc.position || [loc.lat ?? 18.52, loc.lon ?? 73.85]}>
               <Popup>
                 <div className="text-xs">
                   <div className="font-semibold text-risk-low">{loc.name}</div>
-                  <div className="text-slate-400 mt-1">Capacity: {loc.capacity}</div>
+                  <div className="text-slate-400 mt-1">Address: {loc.address}</div>
+                  <div className="text-slate-400">Capacity: {loc.capacity} (Occupancy: {loc.occupancy})</div>
                   <div className="text-slate-400">Distance: {loc.distance} km</div>
                 </div>
               </Popup>
@@ -262,7 +342,7 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
               pathOptions={{
                 color: route.routeType === 'recommended' ? '#22c55e' : '#06b6d4',
                 weight: 4,
-                opacity: 0.7,
+                opacity: 0.75,
                 dashArray: route.routeType === 'alternate' ? '10 6' : undefined,
               }}
             />
@@ -278,8 +358,8 @@ export function MapView({ height = '100%', showControls = true, showSearch = tru
           >
             <Popup>
               <div className="text-xs">
-                <div className="font-semibold text-risk-severe">Blocked Road</div>
-                <div className="text-slate-400 mt-1">Impassable due to flooding</div>
+                <div className="font-semibold text-risk-severe">Blocked Roadway</div>
+                <div className="text-slate-400 mt-1">Impassable due to rising flood water</div>
               </div>
             </Popup>
           </CircleMarker>

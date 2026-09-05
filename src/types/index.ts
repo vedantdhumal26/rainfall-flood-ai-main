@@ -62,6 +62,8 @@ export interface SafeLocation {
   travelTime: number;
   position: [number, number];
   address: string;
+  lat?: number;
+  lon?: number;
 }
 
 export interface EvacuationRoute {

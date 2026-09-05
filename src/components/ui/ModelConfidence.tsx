@@ -1,14 +1,31 @@
-import { CONFIDENCE_FACTORS } from '@/data/mockData';
 import { useEffect, useState } from 'react';
 import { useCountUp } from '@/hooks/useCountUp';
+import { CONFIDENCE_FACTORS as FALLBACK_FACTORS } from '@/data/mockData';
+import { predictionsApi } from '@/api/predictions';
+import type { ConfidenceFactor } from '@/types';
 
 export function ModelConfidence() {
   const [animatedBars, setAnimatedBars] = useState(false);
-  const confidenceValue = useCountUp(91, 800);
+  const [factors, setFactors] = useState<ConfidenceFactor[]>(FALLBACK_FACTORS);
+  const [rawConfidence, setRawConfidence] = useState(91);
+  const confidenceValue = useCountUp(rawConfidence, 800);
 
   useEffect(() => {
+    let isMounted = true;
+    predictionsApi.getMetrics()
+      .then((res) => {
+        if (isMounted && res) {
+          if (res.confidence_factors) setFactors(res.confidence_factors);
+          if (res.overall_confidence) setRawConfidence(res.overall_confidence);
+        }
+      })
+      .catch(() => {});
+
     const timer = setTimeout(() => setAnimatedBars(true), 200);
-    return () => clearTimeout(timer);
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, []);
 
   return (
@@ -36,13 +53,15 @@ export function ModelConfidence() {
           </div>
         </div>
         <div>
-          <div className="text-sm font-semibold text-accent-300">HIGH CONFIDENCE</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Based on 6 data sources</div>
+          <div className="text-sm font-semibold text-accent-300 uppercase">
+            {rawConfidence >= 85 ? 'High Confidence' : rawConfidence >= 70 ? 'Moderate Confidence' : 'Low Confidence'}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Based on 6 synchronized feeds</div>
         </div>
       </div>
 
       <div className="space-y-2.5">
-        {CONFIDENCE_FACTORS.map((factor) => (
+        {factors.map((factor) => (
           <div key={factor.label}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] text-slate-400">{factor.label}</span>

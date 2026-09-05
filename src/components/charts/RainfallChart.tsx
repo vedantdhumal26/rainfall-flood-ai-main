@@ -1,5 +1,5 @@
+import { useEffect, useState } from 'react';
 import {
-  AreaChart,
   Area,
   Line,
   XAxis,
@@ -9,7 +9,9 @@ import {
   ResponsiveContainer,
   ComposedChart,
 } from 'recharts';
-import { RAINFALL_NOWCAST } from '@/data/mockData';
+import { RAINFALL_NOWCAST as FALLBACK_NOWCAST } from '@/data/mockData';
+import { rainfallApi } from '@/api/rainfall';
+import type { ForecastPoint } from '@/types';
 
 interface TooltipPayload {
   name?: string;
@@ -41,10 +43,27 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 }
 
 export function RainfallChart() {
+  const [data, setData] = useState<ForecastPoint[]>(FALLBACK_NOWCAST);
+
+  useEffect(() => {
+    let isMounted = true;
+    rainfallApi.getForecast()
+      .then((res) => {
+        if (isMounted && res?.nowcast && res.nowcast.length > 0) {
+          setData(res.nowcast);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="panel p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="panel-title">Rainfall Intensity Forecast</h3>
+        <h3 className="panel-title">Rainfall Intensity Forecast (Nowcast 0–6h)</h3>
         <div className="flex items-center gap-3 text-[10px]">
           <span className="flex items-center gap-1.5 text-slate-400">
             <span className="w-2.5 h-1 rounded-full bg-slate-500"></span>
@@ -62,7 +81,7 @@ export function RainfallChart() {
       </div>
 
       <ResponsiveContainer width="100%" height={220}>
-        <ComposedChart data={RAINFALL_NOWCAST} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
           <defs>
             <linearGradient id="confGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.2} />
